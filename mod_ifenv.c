@@ -42,23 +42,46 @@
 #include "http_protocol.h"
 #include "ap_config.h"
 
-/* The sample content handler */
-static int ifenv_handler(request_rec *r)
+static const char *start_if_env(cmd_parms *cmd, void *dummy, const char *arg)
 {
-    if (strcmp(r->handler, "ifenv")) {
-        return DECLINED;
+    const char *endp;
+    int exists;
+    int not = 0;
+
+    endp = ap_strrchr_c(arg, '>');
+    if (endp == NULL) {
+        return unclosed_directive(cmd);
     }
-    r->content_type = "text/html";      
 
-    if (!r->header_only)
-        ap_rputs("The sample page from mod_ifenv.c\n", r);
-    return OK;
+    arg = apr_pstrndup(cmd->pool, arg, endp - arg);
+
+    if (arg[0] == '!') {
+        not = 1;
+        arg++;
+    }
+
+    if((!not && getenv(arg)) || (not && !getenv(arg))) {
+        ap_directive_t *parent = NULL;
+        ap_directive_t *current = NULL;
+        const char *retval;
+
+        retval = ap_build_cont_config(cmd->pool, cmd->temp_pool, cmd,
+                                      &current, &parent, "<IfEnv");
+        *(ap_directive_t **)dummy = current;
+        return retval;
+    }
+    else {
+        *(ap_directive_t **)dummy = NULL;
+        return ap_soak_end_container(cmd, "<IfEnv");
+    }
 }
 
-static void ifenv_register_hooks(apr_pool_t *p)
+static const command_rec ifenv_directive_cmds[] =
 {
-    ap_hook_handler(ifenv_handler, NULL, NULL, APR_HOOK_MIDDLE);
-}
+    AP_INIT_TAKE1("<IfEnv", start_if_env, NULL, EXEC_ON_READ | RSRC_CONF,
+                  "Container for directives based on existance of env variable"),
+    NULL,
+};
 
 /* Dispatch list for API hooks */
 module AP_MODULE_DECLARE_DATA ifenv_module = {
@@ -67,7 +90,7 @@ module AP_MODULE_DECLARE_DATA ifenv_module = {
     NULL,                  /* merge  per-dir    config structures */
     NULL,                  /* create per-server config structures */
     NULL,                  /* merge  per-server config structures */
-    NULL,                  /* table of config file commands       */
-    ifenv_register_hooks  /* register hooks                      */
+    ifenv_directive_cmds,  /* table of config file commands       */
+    NULL,  /* register hooks                      */
 };
 
